@@ -21,7 +21,7 @@ Parameters:
   FilesystemParameters:
     Description: "space-separated filesystem designations: [PATH]:[SIZE]:[MOUNT_OPTIONS]"
     Type: String
-    Default: "/tmp:15:nodev,nosuid /var/tmp:5:nodev,nosuid,noexec /var:10:"
+    Default: "/tmp:15:nodev,nosuid /var/tmp:5:nodev,nosuid,noexec /var:10:defaults"
   EC2BootKey:
     Description: EC2 Boot Key, installed for user 'ec2-user'
     Type: AWS::EC2::KeyPair::KeyName
@@ -54,7 +54,7 @@ Resources:
                   #!/usr/bin/env bash
                   set -ex
                   cd /splitami
-                  exec ./splitAMI.rb $*
+                  exec ./splitAMI.rb ${SourceAMI} ${FilesystemParameters}
     Properties:
       UserData:
         Fn::Base64:
@@ -62,10 +62,9 @@ Resources:
             #!/bin/bash
             export PATH="/usr/local/sbin:/usr/local/bin:$PATH:/opt/aws/bin:/root/bin"
             echo "Running cfn-init..."
-            /opt/aws/bin/cfn-init --region ${AWS::Region} \
-              -s ${AWS::StackName} -r CFAMIInstance
-            /usr/local/sbin/install-splitami
-            /usr/local/sbin/splitami ${SourceAMI} ${FilesystemParameters}
+            cfn-init --region ${AWS::Region} -s ${AWS::StackName} -r CFAMIInstance
+            install-splitami
+            splitami
       ImageId:
         Fn::FindInMap:
         - RegionAMIMap

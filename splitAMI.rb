@@ -52,11 +52,12 @@ root_mapping = src_mappings.find{|m| m.device_name == '/dev/sda1'}
 root_snapshot = root_mapping.ebs.snapshot_id
 
 # create a new EBS Volume from the original root disk's snapshot ID
-log.info "Creating a new EBS Volume (type #{root_mapping.ebs.volume_type}) from snapshot ID #{root_snapshot}..."
+log.info "Creating a new EBS Volume from snapshot ID #{root_snapshot}..."
 root_volume_id = client.create_volume({
   availability_zone: AZ,
   size: root_mapping.ebs.volume_size,
   volume_type: root_mapping.ebs.volume_type,
+  snapshot_id: root_snapshot,
 }).volume_id
 log.info "Waiting until AMI Root volume (#{root_volume_id}) is available..."
 client.wait_until(:volume_available, volume_ids: [root_volume_id])
