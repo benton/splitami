@@ -72,6 +72,7 @@ resp = client.attach_volume({
   volume_id: root_volume_id,
 })
 client.wait_until(:volume_in_use, volume_ids: [root_volume_id])
+sleep 30 # Volume is still not attached sometimes?
 log.info "Mounting root device #{root_volume_device} at #{root_volume_path}..."
 `mount #{root_volume_device} #{root_volume_path}`
 

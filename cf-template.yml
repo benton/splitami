@@ -1,0 +1,305 @@
+---
+Description: Splits an input AMI across multiple EBS snapshots
+Parameters:
+  InstanceType:
+    Description: Worker EC2 instance type (m1.small, etc).
+    Type: String
+    ConstraintDescription: must be a valid EC2 instance type.
+    Default: m4.large
+  SoftwareRepoURL:
+    Description: The git checkout URL for the repo that contains splitAMI.rb
+    Type: String
+    Default: https://github.com/benton/splitami.git
+  SoftwareVersion:
+    Description: Which branch / Git reference of splitAMI.rb to run
+    Type: String
+    Default: master
+  SourceAMI:
+    Description: Source AMI
+    Type: String
+    Default: ami-da2001ba
+  FilesystemParameters:
+    Description: "space-separated filesystem designations: [PATH]:[SIZE]:[MOUNT_OPTIONS]"
+    Type: String
+    Default: "/tmp:15:nodev,nosuid /var/tmp:5:nodev,nosuid,noexec /var:10:"
+  EC2BootKey:
+    Description: EC2 Boot Key, installed for user 'ec2-user'
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: medistrano
+Resources:
+  CFAMIInstance:
+    Type: "AWS::EC2::Instance"
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          package_upgrade: true
+          files:
+            "/usr/local/sbin/install-splitami":
+              mode: '0755'
+              content:
+                !Sub |
+                  #!/usr/bin/env bash
+                  set -ex
+                  yum -y install git gcc ruby-devel emacs
+                  gem install io-console bundler
+                  rm -rf /splitami
+                  git clone ${SoftwareRepoURL} /splitami
+                  cd /splitami
+                  git checkout ${SoftwareVersion}
+                  bundle install --jobs=4
+            "/usr/local/sbin/splitami":
+              mode: '0755'
+              content:
+                !Sub |
+                  #!/usr/bin/env bash
+                  set -ex
+                  cd /splitami
+                  exec ./splitAMI.rb $*
+    Properties:
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            export PATH="/usr/local/sbin:/usr/local/bin:$PATH:/opt/aws/bin:/root/bin"
+            echo "Running cfn-init..."
+            /opt/aws/bin/cfn-init --region ${AWS::Region} \
+              -s ${AWS::StackName} -r CFAMIInstance
+            /usr/local/sbin/install-splitami
+            /usr/local/sbin/splitami ${SourceAMI} ${FilesystemParameters}
+      ImageId:
+        Fn::FindInMap:
+        - RegionAMIMap
+        - Ref: AWS::Region
+        - AMI
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref EC2BootKey
+      SecurityGroupIds:
+      - !GetAtt CandoCISecurityGroup.GroupId
+      SubnetId: !Ref PublicSubnet
+      IamInstanceProfile: !Ref CISAMIInstanceProfile
+      Tags:
+      - Key: Application
+        Value: !Ref AWS::StackName
+      - Key: Name
+        Value: CF AMI Builder experiement
+      - Key: Project
+        Value: cfami
+      - Key: Environment
+        Value: sandbox
+      - Key: Type
+        Value: app
+      - Key: 'mdsol:cfami:sandbox:app'
+        Value: ""
+  CISAMIRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: CloudWatchLogs-logEvents
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:DescribeLogGroups
+            - logs:DescribeLogStreams
+            - logs:PutLogEvents
+            Resource: "*"
+      - PolicyName: Build-EBS-AMIs
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action:
+            - ec2:AttachVolume
+            - ec2:CreateVolume
+            - ec2:DeleteVolume
+            - ec2:CreateImage
+            - ec2:DescribeVolumes
+            - ec2:DetachVolume
+            - ec2:DescribeInstances
+            - ec2:CreateSnapshot
+            - ec2:DescribeSnapshots
+            - ec2:DescribeImages
+            - ec2:RegisterImage
+            - ec2:CreateTags
+            - ec2:ModifyImageAttribute
+            Resource: "*"
+      - PolicyName: IAMAccess-denied
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            NotAction: iam:*
+            Resource: "*"
+  CISAMIInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - Ref: CISAMIRole
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      CidrBlock:
+        Fn::FindInMap:
+        - SubnetConfig
+        - VPC
+        - CIDR
+      Tags:
+      - Key: Application
+        Value: !Ref AWS::StackName
+      - Key: Network
+        Value: Public
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: 'true'
+      CidrBlock:
+        Fn::FindInMap:
+        - SubnetConfig
+        - Public
+        - CIDR
+      Tags:
+      - Key: Application
+        Value: !Ref AWS::StackName
+      - Key: Network
+        Value: Public
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Application
+        Value: !Ref AWS::StackName
+      - Key: Network
+        Value: Public
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: VPC
+      InternetGatewayId:
+        Ref: InternetGateway
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Application
+        Value: !Ref AWS::StackName
+      - Key: Network
+        Value: Public
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId:
+        Ref: PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: InternetGateway
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet
+      RouteTableId:
+        Ref: PublicRouteTable
+  PublicNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Application
+        Value: !Ref AWS::StackName
+      - Key: Network
+        Value: Public
+  InboundPublicNetworkAclEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId:
+        Ref: PublicNetworkAcl
+      RuleNumber: '100'
+      Protocol: '6'
+      RuleAction: allow
+      Egress: 'false'
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: '0'
+        To: '65535'
+  OutboundPublicNetworkAclEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId:
+        Ref: PublicNetworkAcl
+      RuleNumber: '100'
+      Protocol: '6'
+      RuleAction: allow
+      Egress: 'true'
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: '0'
+        To: '65535'
+  PublicSubnetNetworkAclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet
+      NetworkAclId:
+        Ref: PublicNetworkAcl
+  CandoCISecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http and ssh to cando host
+      VpcId:
+        Ref: VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+Mappings:
+  # AMI Name = amzn-ami-hvm-2017.03.0.20170417-x86_64-gp2
+  RegionAMIMap:
+    ap-northeast-1:
+      AMI: ami-xxxxxxxx
+    sa-east-1:
+      AMI: ami-xxxxxxxx
+    ap-southeast-2:
+      AMI: ami-xxxxxxxx
+    ap-southeast-1:
+      AMI: ami-xxxxxxxx
+    eu-central-1: # Frankfurt, Germany
+      AMI: ami-xxxxxxxx
+    eu-west-1: # Dublin, Ireland
+      AMI: ami-xxxxxxxx
+    eu-west-2: # London, England
+      AMI: ami-xxxxxxxx
+    us-east-1: # Virginia, USA
+      AMI: ami-xxxxxxxx
+    us-west-1: # California, USA
+      AMI: ami-7a85a01a
+    us-west-2: # Oregon, USA
+      AMI: ami-xxxxxxxx
+  SubnetConfig:
+    VPC:
+      CIDR: 10.0.0.0/16
+    Public:
+      CIDR: 10.0.0.0/24
+Outputs:
+  BuilderIP:
+    Description: Public DNS name of the builder EC2 Instance
+    Value: !GetAtt CFAMIInstance.PublicDnsName
