@@ -21,7 +21,7 @@ Parameters:
   FilesystemParameters:
     Description: "space-separated filesystem designations: [PATH]:[SIZE]:[MOUNT_OPTIONS]"
     Type: String
-    Default: "/tmp:15:nodev,nosuid /var/tmp:5:nodev,nosuid,noexec /var:10:defaults"
+    Default: "/var:13:defaults"
   EC2BootKey:
     Description: EC2 Boot Key, installed for user 'ec2-user'
     Type: AWS::EC2::KeyPair::KeyName
