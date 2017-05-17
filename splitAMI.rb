@@ -203,7 +203,7 @@ mappings.each do |mapping|
     end
   end
 end
-log.info "Final block device mappings: #{mappings}"
+log.debug "Final block device mappings: #{mappings}"
 log.info "Waiting for snapshots to complete..."
 client.wait_until(:snapshot_completed, snapshot_ids: snapshot_ids)
 
@@ -219,8 +219,9 @@ snapshot_ids.each do |snap_id|
     snapshot_id: snap_id)
 end
 
-log.info "Registering new AMI Image..."
-ami_name = "#{src_ami.name} split on #{TIMESTAMP}"
+ILLEGAL_CHARS = /[^a-zA-z0-9().,-\/_ ]+/ # characters not permitted in AMI names
+ami_name = "#{src_ami.name} split on #{TIMESTAMP}".gsub(ILLEGAL_CHARS,'-')
+log.info "Registering new AMI Image #{ami_name}..."
 new_ami_id = client.register_image({
   name: ami_name,
   description: "#{src_ami.description} - split",
