@@ -6,9 +6,12 @@ Parameters:
     Type: String
     Default: ami-70173610
   FilesystemParameters:
-    Description: "space-separated filesystem designations: [PATH]:[SIZE]:[MOUNT_OPTIONS]"
+    Description: |- space-separated filesystem designations of the form:
+      [PATH]:[SIZE]:[MOUNT_OPTIONS]
     Type: String
-    Default: "/tmp:17:nodev,nosuid /var/tmp:7:nodev,nosuid,noexec /var:13:defaults"
+    Default: |- /data:30:defaults
+      /tmp:20:nodev,nosuid /var/tmp:7:nodev,nosuid,noexec /var:10:defaults
+      /home:10:defaults,nodev /var/log/audit:5:defaults /var/log:15:defaults
   SoftwareRepoURL:
     Description: The git checkout URL for the repo that contains splitAMI.rb
     Type: String
@@ -66,7 +69,7 @@ Resources:
             splitami-install && splitami-run
             echo "Shutting down stack ${AWS::StackName}..."
             aws configure set default.region ${AWS::Region}
-            aws --debug cloudformation delete-stack --stack-name ${AWS::StackName}
+            aws cloudformation delete-stack --stack-name ${AWS::StackName}
       ImageId:
         Fn::FindInMap:
         - RegionAMIMap
@@ -142,6 +145,10 @@ Resources:
             Action:
             - cloudformation:DeleteStack
             Resource: !Ref AWS::StackId
+          - Effect: Allow
+            Action:
+            - iam:DeleteRolePolicy
+            Resource: "*"
         PolicyDocument:
           Statement:
           - Effect: Allow
