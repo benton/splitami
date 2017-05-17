@@ -1,17 +1,16 @@
 ---
-Description: Splits an input AMI across multiple EBS snapshots
+Description: Splits an input AMI into a new AMI spread across multiple EBS snapshots
 Parameters:
-  SourceAMI:
+  AppSourceAMI:
     Description: Source AMI
     Type: String
     Default: ami-70173610
-  FilesystemParameters:
-    Description: |- space-separated filesystem designations of the form:
-      [PATH]:[SIZE]:[MOUNT_OPTIONS]
+  AppFilesystemParameters:
+    Description: "space-separated filesystem designations of the form [PATH]:[SIZE]:[MOUNT_OPTIONS]"
+    # Default disk partitions for Center for Internet Security recommendations
+    Default: "/tmp:5:nodev,nosuid"
+    # Default: "/data:30:defaults /tmp:20:nodev,nosuid /var/tmp:7:nodev,nosuid,noexec /var:10:defaults /home:10:defaults,nodev /var/log/audit:5:defaults /var/log:15:defaults"
     Type: String
-    Default: |- /data:30:defaults
-      /tmp:20:nodev,nosuid /var/tmp:7:nodev,nosuid,noexec /var:10:defaults
-      /home:10:defaults,nodev /var/log/audit:5:defaults /var/log:15:defaults
   SoftwareRepoURL:
     Description: The git checkout URL for the repo that contains splitAMI.rb
     Type: String
@@ -21,17 +20,18 @@ Parameters:
     Type: String
     Default: master
   InstanceType:
-    Description: Worker EC2 instance type (m1.small, etc).
+    Description: Worker EC2 instance type (m3.medium, etc).
     Type: String
     ConstraintDescription: must be a valid EC2 instance type.
-    Default: m4.large
-  EC2BootKey:
+    Default: m3.medium
+  InstanceBootKey:
     Description: EC2 Boot Key, installed for user 'ec2-user'
     Type: AWS::EC2::KeyPair::KeyName
     Default: medistrano
 Resources:
   AMIInstance:
     Type: "AWS::EC2::Instance"
+    DependsOn: IAMInstanceProfile
     Metadata:
       AWS::CloudFormation::Init:
         config:
@@ -57,7 +57,7 @@ Resources:
                   #!/usr/bin/env bash
                   set -ex
                   cd /splitami
-                  exec ./splitAMI.rb ${SourceAMI} ${FilesystemParameters}
+                  exec ./splitAMI.rb ${AppSourceAMI} ${AppFilesystemParameters}
     Properties:
       UserData:
         Fn::Base64:
@@ -76,7 +76,7 @@ Resources:
         - Ref: AWS::Region
         - AMI
       InstanceType: !Ref InstanceType
-      KeyName: !Ref EC2BootKey
+      KeyName: !Ref InstanceBootKey
       SecurityGroupIds:
       - !GetAtt SplitAMISecurityGroup.GroupId
       SubnetId: !Ref PublicSubnet
@@ -97,6 +97,7 @@ Resources:
   IAMRole:
     Type: AWS::IAM::Role
     Properties:
+      Path: "/"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -106,9 +107,8 @@ Resources:
             - ec2.amazonaws.com
           Action:
           - sts:AssumeRole
-      Path: "/"
       Policies:
-      - PolicyName: CloudWatchLogs-logEvents
+      - PolicyName: CloudWatchLogs-LogEvents
         PolicyDocument:
           Statement:
           - Effect: Allow
@@ -119,7 +119,7 @@ Resources:
             - logs:DescribeLogStreams
             - logs:PutLogEvents
             Resource: "*"
-      - PolicyName: Build-EBS-AMIs
+      - PolicyName: Split-EBS-AMIs
         PolicyDocument:
           Statement:
           - Effect: Allow
@@ -137,23 +137,73 @@ Resources:
             - ec2:RegisterImage
             - ec2:CreateTags
             - ec2:ModifyImageAttribute
+            - ec2:ModifySnapshotAttribute
             Resource: "*"
-      - PolicyName: Delete-my-CF-stack
+      - PolicyName: Delete-My-Own-CF-stack
         PolicyDocument:
           Statement:
-          - Effect: Allow
-            Action:
+          - Action:
             - cloudformation:DeleteStack
-            Resource: !Ref AWS::StackId
-          - Effect: Allow
-            Action:
+            Effect: Allow
+            Resource: !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+          - Action:
+            - ec2:DescribeInstances
+            Effect: Allow
+            Resource: "*"
+          - Action:
+            - ec2:TerminateInstances
+            - ec2:DeleteSecurityGroup
+            Condition:
+              StringEquals:
+                ec2:ResourceTag/aws:cloudformation:stack-id:
+                  Ref: AWS::StackId
+            Effect: Allow
+            Resource: "*"
+          - Action:
+            - ec2:DeleteVpc
+            - ec2:DeleteSubnet
+            - ec2:DeleteInternetGateway
+            - ec2:DeleteNetworkAcl
+            - ec2:DetachInternetGateway
+            - ec2:DeleteRouteTable
+            - ec2:DeleteNetworkAclEntry
+            - ec2:DisassociateRouteTable
+            - ec2:DescribeRouteTables
+            - ec2:DeleteRoute
+            - ec2:DescribeNetworkAcls
+            - ec2:DescribeInternetGatewaysResult
+            - ec2:DescribeSubnets
+            - ec2:ReplaceNetworkAclAssociation
+            - ec2:DescribeInternetGateways
+            - ec2:DescribeVpcs
+            Effect: Allow
+            Resource: "*"
+          - Action:
+            - iam:DeleteInstanceProfile
+            - iam:RemoveRoleFromInstanceProfile
+            Effect: Allow
+            Resource:
+              Fn::Join:
+              - ''
+              - - 'arn:aws:iam::'
+                - Ref: AWS::AccountId
+                - ":instance-profile/"
+                - Ref: AWS::StackName
+                - "-"
+                - IAMInstanceProfile
+                - "-*"
+          - Action:
+            - iam:DeleteRole
             - iam:DeleteRolePolicy
-            Resource: "*"
-        PolicyDocument:
-          Statement:
-          - Effect: Allow
-            NotAction: iam:*
-            Resource: "*"
+            Effect: Allow
+            Resource:
+              Fn::Join:
+              - ''
+              - - 'arn:aws:iam::'
+                - Ref: AWS::AccountId
+                - ":role/"
+                - Ref: AWS::StackName
+                - "-IAMRole-*"
   IAMInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -162,6 +212,7 @@ Resources:
       - Ref: IAMRole
   VPC:
     Type: AWS::EC2::VPC
+    DependsOn: IAMInstanceProfile
     Properties:
       EnableDnsSupport: 'true'
       EnableDnsHostnames: 'true'
@@ -177,6 +228,7 @@ Resources:
         Value: Public
   PublicSubnet:
     Type: AWS::EC2::Subnet
+    DependsOn: IAMInstanceProfile
     Properties:
       VpcId: !Ref VPC
       MapPublicIpOnLaunch: 'true'
@@ -192,6 +244,7 @@ Resources:
         Value: Public
   InternetGateway:
     Type: AWS::EC2::InternetGateway
+    DependsOn: IAMInstanceProfile
     Properties:
       Tags:
       - Key: Application
@@ -200,6 +253,7 @@ Resources:
         Value: Public
   GatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
+    DependsOn: IAMInstanceProfile
     Properties:
       VpcId:
         Ref: VPC
@@ -226,6 +280,7 @@ Resources:
         Ref: InternetGateway
   PublicSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn: IAMInstanceProfile
     Properties:
       SubnetId:
         Ref: PublicSubnet
@@ -243,6 +298,7 @@ Resources:
         Value: Public
   InboundPublicNetworkAclEntry:
     Type: AWS::EC2::NetworkAclEntry
+    DependsOn: IAMInstanceProfile
     Properties:
       NetworkAclId:
         Ref: PublicNetworkAcl
@@ -256,6 +312,7 @@ Resources:
         To: '65535'
   OutboundPublicNetworkAclEntry:
     Type: AWS::EC2::NetworkAclEntry
+    DependsOn: IAMInstanceProfile
     Properties:
       NetworkAclId:
         Ref: PublicNetworkAcl
@@ -269,6 +326,7 @@ Resources:
         To: '65535'
   PublicSubnetNetworkAclAssociation:
     Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn: IAMInstanceProfile
     Properties:
       SubnetId:
         Ref: PublicSubnet
@@ -276,6 +334,7 @@ Resources:
         Ref: PublicNetworkAcl
   SplitAMISecurityGroup:
     Type: AWS::EC2::SecurityGroup
+    DependsOn: IAMInstanceProfile
     Properties:
       GroupDescription: Allow ssh to host
       VpcId:
@@ -297,13 +356,13 @@ Mappings:
     ap-southeast-1:
       AMI: ami-xxxxxxxx
     eu-central-1: # Frankfurt, Germany
-      AMI: ami-xxxxxxxx
+      AMI: ami-b968bad6
     eu-west-1: # Dublin, Ireland
-      AMI: ami-xxxxxxxx
+      AMI: ami-01ccc867
     eu-west-2: # London, England
-      AMI: ami-xxxxxxxx
+      AMI: ami-b6daced2
     us-east-1: # Virginia, USA
-      AMI: ami-xxxxxxxx
+      AMI: ami-c58c1dd3
     us-west-1: # California, USA
       AMI: ami-7a85a01a
     us-west-2: # Oregon, USA
@@ -314,11 +373,8 @@ Mappings:
     Public:
       CIDR: 10.0.0.0/24
 Outputs:
-  BuilderIP:
-    Description: Public DNS name of the builder EC2 Instance
-    Value: !GetAtt AMIInstance.PublicDnsName
   DebugCommand:
-    Description: Run this command to follow the build log
+    Description: Run this command to follow the build log.
     Value: !Sub |-
-      ssh -i ~/.ssh/${EC2BootKey} ec2-user@${AMIInstance.PublicDnsName}
+      ssh -i ~/.ssh/${InstanceBootKey} ec2-user@${AMIInstance.PublicDnsName}
         tail -f /var/log/cloud-init-output.log
