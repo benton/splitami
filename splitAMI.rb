@@ -141,6 +141,7 @@ fs_params.sort{|a,b| a.split(':')[0] <=> b.split(':')[0]}.reverse.each do |fs_pa
 
   # move the data from /newami/root/[PATH] to /newami/[PATH]
   src_dir = root_volume_path + path
+  FileUtils.mkdir_p src_dir   # create source directory as needed
   log.info "Copying data from #{src_dir} -> #{data_volume_path}..."
   `tar -C #{src_dir} -cf - . | tar -C #{data_volume_path} -xBf -`
   log.info "Deleting data from #{src_dir}..."
