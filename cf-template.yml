@@ -147,10 +147,6 @@ Resources:
             Effect: Allow
             Resource: !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
           - Action:
-            - ec2:DescribeInstances
-            Effect: Allow
-            Resource: "*"
-          - Action:
             - ec2:TerminateInstances
             - ec2:DeleteSecurityGroup
             Condition:
@@ -160,6 +156,7 @@ Resources:
             Effect: Allow
             Resource: "*"
           - Action:
+            - ec2:DescribeInstances
             - ec2:DeleteVpc
             - ec2:DeleteSubnet
             - ec2:DeleteInternetGateway
@@ -182,28 +179,21 @@ Resources:
             - iam:DeleteInstanceProfile
             - iam:RemoveRoleFromInstanceProfile
             Effect: Allow
+            Resource: !Sub >-
+              arn:aws:iam::${AWS::AccountId}:instance-
+              profile/${AWS::StackName}-IAMInstanceProfile-*
             Resource:
               Fn::Join:
-              - ''
-              - - 'arn:aws:iam::'
+              - ':'
+              - - 'arn:aws:iam:'
                 - Ref: AWS::AccountId
-                - ":instance-profile/"
-                - Ref: AWS::StackName
-                - "-"
-                - IAMInstanceProfile
-                - "-*"
+                - !Sub instance-profile/${AWS::StackName}-IAMInstanceProfile-*
           - Action:
             - iam:DeleteRole
             - iam:DeleteRolePolicy
             Effect: Allow
-            Resource:
-              Fn::Join:
-              - ''
-              - - 'arn:aws:iam::'
-                - Ref: AWS::AccountId
-                - ":role/"
-                - Ref: AWS::StackName
-                - "-IAMRole-*"
+            Resource: !Sub >-
+              arn:aws:iam::${AWS::AccountId}:role/${AWS::StackName}-IAMRole-*
   IAMInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
