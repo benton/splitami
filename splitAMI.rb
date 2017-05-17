@@ -216,12 +216,11 @@ snapshot_ids.each do |snap_id|
     attribute: "createVolumePermission",
     group_names: ["all"],
     operation_type: "add",
-    snapshot_id: snap_id,
-  )
+    snapshot_id: snap_id)
 end
 
 log.info "Registering new AMI Image..."
-ami_name = "#{src_ami.name} - split"
+ami_name = "#{src_ami.name} split on #{TIMESTAMP}"
 new_ami_id = client.register_image({
   name: ami_name,
   description: "#{src_ami.description} - split",
