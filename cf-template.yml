@@ -17,7 +17,7 @@ Parameters:
   SourceAMI:
     Description: Source AMI
     Type: String
-    Default: ami-da2001ba
+    Default: ami-2afbde4a
   FilesystemParameters:
     Description: "space-separated filesystem designations: [PATH]:[SIZE]:[MOUNT_OPTIONS]"
     Type: String
@@ -73,7 +73,7 @@ Resources:
       InstanceType: !Ref InstanceType
       KeyName: !Ref EC2BootKey
       SecurityGroupIds:
-      - !GetAtt CandoCISecurityGroup.GroupId
+      - !GetAtt SplitAMISecurityGroup.GroupId
       SubnetId: !Ref PublicSubnet
       IamInstanceProfile: !Ref AMIInstanceProfile
       Tags:
@@ -259,10 +259,10 @@ Resources:
         Ref: PublicSubnet
       NetworkAclId:
         Ref: PublicNetworkAcl
-  CandoCISecurityGroup:
+  SplitAMISecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow http and ssh to cando host
+      GroupDescription: Allow ssh to host
       VpcId:
         Ref: VPC
       SecurityGroupIngress:
