@@ -157,10 +157,10 @@ fs_params.each do |fs_param|
   client.detach_volume(volume_id: data_volume_id)
   client.wait_until(:volume_available, volume_ids: [data_volume_id])
   log.info "Snapshotting data volume for #{path} #{data_volume_id}..."
-  snapshot_id = client.create_snapshot({
+  snapshot_id = client.create_snapshot(
     description: "#{src_ami.name} /dev/#{device}",
     volume_id: data_volume_id,
-  }).snapshot_id
+  ).snapshot_id
   snapshot_ids << snapshot_id
   log.info "Deleting data volume for #{path} #{data_volume_id}..."
   client.delete_volume(volume_id: data_volume_id)
@@ -209,7 +209,17 @@ client.wait_until(:snapshot_completed, snapshot_ids: snapshot_ids)
 
 
 ################################
-# STAGE 4 - Registerthe new AMI and tag created resources
+# STAGE 4 - Register the new AMI and tag created resources
+# first, make all snapshots public
+snapshot_ids.each do |snap_id|
+  client.modify_snapshot_attribute(
+    attribute: "createVolumePermission",
+    group_names: ["all"],
+    operation_type: "add",
+    snapshot_id: snap_id,
+  )
+end
+
 log.info "Registering new AMI Image..."
 ami_name = "#{src_ami.name} - split"
 new_ami_id = client.register_image({
@@ -249,4 +259,11 @@ mappings.each do |mapping|
   end
 end
 
+log.info "Making AMI #{new_ami_id} public..."
+client.modify_image_attribute({
+  image_id: new_ami_id,
+  launch_permission: {add: [{group: "all"}]}})
+
+
+################################
 log.info "Done. Created AMI #{new_ami_id} => #{ami_name}"
