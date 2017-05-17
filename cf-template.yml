@@ -1,11 +1,14 @@
 ---
 Description: Splits an input AMI across multiple EBS snapshots
 Parameters:
-  InstanceType:
-    Description: Worker EC2 instance type (m1.small, etc).
+  SourceAMI:
+    Description: Source AMI
     Type: String
-    ConstraintDescription: must be a valid EC2 instance type.
-    Default: m4.large
+    Default: ami-70173610
+  FilesystemParameters:
+    Description: "space-separated filesystem designations: [PATH]:[SIZE]:[MOUNT_OPTIONS]"
+    Type: String
+    Default: "/tmp:17:nodev,nosuid /var/tmp:7:nodev,nosuid,noexec /var:13:defaults"
   SoftwareRepoURL:
     Description: The git checkout URL for the repo that contains splitAMI.rb
     Type: String
@@ -14,14 +17,11 @@ Parameters:
     Description: Which branch / Git reference of splitAMI.rb to run
     Type: String
     Default: master
-  SourceAMI:
-    Description: Source AMI
+  InstanceType:
+    Description: Worker EC2 instance type (m1.small, etc).
     Type: String
-    Default: ami-70173610
-  FilesystemParameters:
-    Description: "space-separated filesystem designations: [PATH]:[SIZE]:[MOUNT_OPTIONS]"
-    Type: String
-    Default: "/var:13:defaults"
+    ConstraintDescription: must be a valid EC2 instance type.
+    Default: m4.large
   EC2BootKey:
     Description: EC2 Boot Key, installed for user 'ec2-user'
     Type: AWS::EC2::KeyPair::KeyName
@@ -34,7 +34,7 @@ Resources:
         config:
           package_upgrade: true
           files:
-            "/usr/local/sbin/install-splitami":
+            "/usr/local/sbin/splitami-install":
               mode: '0755'
               content:
                 !Sub |
@@ -47,7 +47,7 @@ Resources:
                   cd /splitami
                   git checkout ${SoftwareVersion}
                   bundle install --jobs=4
-            "/usr/local/sbin/splitami":
+            "/usr/local/sbin/splitami-run":
               mode: '0755'
               content:
                 !Sub |
@@ -59,14 +59,14 @@ Resources:
       UserData:
         Fn::Base64:
           !Sub |
-            #!/bin/bash
+            #!/bin/bash -e
             export PATH="/usr/local/sbin:/usr/local/bin:$PATH:/opt/aws/bin"
             echo "Running cfn-init..."
             cfn-init --region ${AWS::Region} -s ${AWS::StackName} -r AMIInstance
-            install-splitami
-            splitami
-            aws configure set default.region us-west-2
-            aws cloudformation delete-stack --stack-name ${AWS::StackName}
+            splitami-install && splitami-run
+            echo "Shutting down stack ${AWS::StackName}..."
+            aws configure set default.region ${AWS::Region}
+            aws --debug cloudformation delete-stack --stack-name ${AWS::StackName}
       ImageId:
         Fn::FindInMap:
         - RegionAMIMap
@@ -141,8 +141,7 @@ Resources:
           - Effect: Allow
             Action:
             - cloudformation:DeleteStack
-            Resource: "*"
-      - PolicyName: IAMAccess-denied
+            Resource: !Ref AWS::StackId
         PolicyDocument:
           Statement:
           - Effect: Allow
@@ -311,3 +310,8 @@ Outputs:
   BuilderIP:
     Description: Public DNS name of the builder EC2 Instance
     Value: !GetAtt AMIInstance.PublicDnsName
+  DebugCommand:
+    Description: Run this command to follow the build log
+    Value: !Sub |-
+      ssh -i ~/.ssh/${EC2BootKey} ec2-user@${AMIInstance.PublicDnsName}
+        tail -f /var/log/cloud-init-output.log
