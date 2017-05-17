@@ -7,6 +7,7 @@ require 'aws-sdk-resources'
 require 'fileutils'
 require 'logger'
 require 'open-uri'
+require 'time'
 
 ################################
 # STAGE 0 - CONFIGURATION
@@ -14,8 +15,10 @@ log = Logger.new(STDOUT)
 log.formatter = proc do |severity, datetime, progname, msg|
    "#{severity}: #{msg}\n"
 end
-ROOT_DEVICE_NAME = '/dev/sda1'
-WORKDIR = '/newami'
+ROOT_DEVICE_NAME   = '/dev/sda1'
+WORKDIR            = '/newami'
+REMOVE_TAGS        = ['Name', 'Description', 'CreatedAt', 'CreatedFrom']
+TIMESTAMP          = Time.now.strftime("%Y/%m/%d at %H:%M:%S")
 src_id, *fs_params = ARGV
 
 # validate arguments
@@ -31,12 +34,12 @@ fs_params.each do |fs_param|
 end
 
 log.info "Detecting AWS Region from EC2 metadata service..."
-METADATA_URL = 'http://169.254.169.254/latest/meta-data/'
-AZ           = open("#{METADATA_URL}/placement/availability-zone"){|io| io.read}
-REGION       = AZ.chop
-Aws.config.update({region: REGION})
-client         = Aws::EC2::Client.new
+METADATA_URL   = 'http://169.254.169.254/latest/meta-data/'
+AZ             = open("#{METADATA_URL}/placement/availability-zone"){|io| io.read}
+REGION         = AZ.chop
+client         = Aws::EC2::Client.new(region: REGION)
 my_instance_id = open("#{METADATA_URL}/instance-id"){|io| io.read}
+Aws.config.update(region: REGION)
 
 # assign an unused local unix device name to each of the fs_params
 candidate_devices = ('b'...'z').to_a.map{|dev| "/dev/xvd#{dev}"}
@@ -52,6 +55,9 @@ end
 # STAGE 1 - Mount a new volume with the contents of the source AMI's root disk
 src_ami = Aws::EC2::Image.new(src_id)
 src_mappings = src_ami.block_device_mappings
+base_tags = src_ami.tags.delete_if {|t| REMOVE_TAGS.include? t.key} <<
+  Aws::EC2::Types::Tag.new(key: "CreatedAt", value: TIMESTAMP) <<
+  Aws::EC2::Types::Tag.new(key: "CreatedFrom", value: src_id)
 
 # find the original root disk's snapshot ID
 root_mapping = src_mappings.find{|m| m.device_name == ROOT_DEVICE_NAME}
@@ -68,7 +74,7 @@ i = 0 ; while i < fs_params.count do
 end
 
 # create a new volume from the original root disk's snapshot ID
-log.info "Creating a new volume from snapshot ID #{root_snapshot}..."
+log.info "Creating a new root volume from snapshot ID #{root_snapshot}..."
 root_volume_id = client.create_volume({
   availability_zone: AZ,
   size: root_mapping.ebs.volume_size,
@@ -81,7 +87,7 @@ client.wait_until(:volume_available, volume_ids: [root_volume_id])
 # attach the volume and mount it at WORKDIR/root
 root_volume_path = "#{WORKDIR}/root"
 root_volume_device = "#{local_device_map['root']}1"
-log.info "Attaching root volume (#{root_volume_id}) at #{root_volume_path}..."
+log.info "Attaching root volume at #{local_device_map['root']}..."
 FileUtils.mkdir_p(root_volume_path)
 resp = client.attach_volume({
   device: local_device_map['root'],
@@ -96,13 +102,15 @@ log.info "Mounting root device #{root_volume_device} at #{root_volume_path}..."
 
 ################################
 # STAGE 2 - Create a new EBS Snapshot for each of the fs_params
-mappings = src_mappings.map{|m| m.to_h}  # track the created Device Mappings
+mappings = src_mappings.map{|m| m.to_h} # track the created Device Mappings
+snapshot_ids = []                       # also track created snapshot IDs
+
 # iterate over each desired filesystem parameters, and for each...
 fs_params.each do |fs_param|
   path, size, opts = fs_param.split(':')
 
   # create a new EBS data volume and wait until it's ready
-  log.info "Creating a #{size}GB volume for #{path}, for new AMI..."
+  log.info "Creating a new #{size}GB data volume for #{path}..."
   data_volume_id = client.create_volume({
     availability_zone: AZ,
     size: size,
@@ -149,22 +157,18 @@ fs_params.each do |fs_param|
   client.detach_volume(volume_id: data_volume_id)
   client.wait_until(:volume_available, volume_ids: [data_volume_id])
   log.info "Snapshotting data volume for #{path} #{data_volume_id}..."
-  snap_description = "AMI Snapshot for #{device}, mounted at #{path}"
   snapshot_id = client.create_snapshot({
-    description: snap_description,
+    description: "#{src_ami.name} /dev/#{device}",
     volume_id: data_volume_id,
   }).snapshot_id
-  client.create_tags(
-    resources: [snapshot_id],
-    tags: [{key: "Name", value: snap_description}]
-  )
+  snapshot_ids << snapshot_id
   log.info "Deleting data volume for #{path} #{data_volume_id}..."
   client.delete_volume(volume_id: data_volume_id)
 
   # create the AWS Block Device Mapping for this volume
   mappings <<  {
+  device_name: device,
     virtual_name: "ebs",
-    device_name: device,
     ebs: {
       snapshot_id: snapshot_id,
       delete_on_termination: true,
@@ -173,6 +177,8 @@ fs_params.each do |fs_param|
   }
 end # Done with fs_params
 
+
+################################
 # STAGE 3 - Snapshot and delete the root volume
 log.info "Unmounting root volume from #{root_volume_path}..."
 `umount #{root_volume_path} && rm -rf #{WORKDIR}`  # clean up
@@ -180,28 +186,20 @@ log.info "Detaching root volume #{root_volume_id}..."
 client.detach_volume(volume_id: root_volume_id)
 client.wait_until(:volume_available, volume_ids: [root_volume_id])
 log.info "Snapshotting root volume #{root_volume_id}..."
-snap_description = "AMI Snapshot for #{root_mapping.device_name}, mounted at /"
 root_snapshot_id = client.create_snapshot({
-  description: snap_description,
+  description: "#{src_ami.name} root disk",
   volume_id: root_volume_id,
 }).snapshot_id
-client.create_tags(
-  resources: [root_snapshot_id],
-  tags: [{key: "Name", value: snap_description}]
-)
+snapshot_ids << root_snapshot_id
 log.info "Deleting root volume #{root_volume_id}..."
 client.delete_volume(volume_id: root_volume_id)
 
 # create the final AWS Block Device Mappings
-snapshot_ids = []
 mappings.each do |mapping|
   if mapping[:ebs]
     mapping[:ebs].delete(:encrypted)
     if mapping[:device_name] == ROOT_DEVICE_NAME
       mapping[:ebs][:snapshot_id] = root_snapshot_id
-    end
-    if mapping[:ebs][:snapshot_id]
-      snapshot_ids << mapping[:ebs][:snapshot_id]
     end
   end
 end
@@ -210,10 +208,12 @@ log.info "Waiting for snapshots to complete..."
 client.wait_until(:snapshot_completed, snapshot_ids: snapshot_ids)
 
 
-# STAGE 4 - Register and tag the new AMI
+################################
+# STAGE 4 - Registerthe new AMI and tag created resources
 log.info "Registering new AMI Image..."
+ami_name = "#{src_ami.name} - split"
 new_ami_id = client.register_image({
-  name: "#{src_ami.name} - split",
+  name: ami_name,
   description: "#{src_ami.description} - split",
   architecture: src_ami.architecture,
   kernel_id: src_ami.kernel_id,
@@ -226,10 +226,27 @@ new_ami_id = client.register_image({
 }).image_id
 log.info "Waiting for AMI #{new_ami_id} to become ready..."
 client.wait_until(:image_available, image_ids: [new_ami_id])
+
 log.info "Tagging AMI #{new_ami_id}..."
 client.create_tags(
-  resources: (snapshot_ids << new_ami_id),
-  tags: src_ami.tags
-)
+  resources: [new_ami_id],
+  tags:  base_tags <<
+    Aws::EC2::Types::Tag.new(key: "Name", value: ami_name) <<
+    Aws::EC2::Types::Tag.new(key: "Description", value:
+      "#{src_ami.description} split on #{TIMESTAMP}"))
 
-log.info "Done. Created AMI #{new_ami_id}"
+# tag all created snapshots
+mappings.each do |mapping|
+  if mapping[:ebs] && snapshot_ids.include?(mapping[:ebs][:snapshot_id])
+    log.info "Tagging snapshot #{mapping[:ebs][:snapshot_id]}..."
+    client.create_tags(
+      resources: [mapping[:ebs][:snapshot_id]],
+      tags:  base_tags <<
+        Aws::EC2::Types::Tag.new(key: "Name", value:
+          "#{new_ami_id} #{mapping[:device_name]}") <<
+        Aws::EC2::Types::Tag.new(key: "Description", value:
+          "Created by splitImage.rb (#{my_instance_id}) for #{new_ami_id}"))
+  end
+end
+
+log.info "Done. Created AMI #{new_ami_id} => #{ami_name}"

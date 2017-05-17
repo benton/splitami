@@ -27,7 +27,7 @@ Parameters:
     Type: AWS::EC2::KeyPair::KeyName
     Default: medistrano
 Resources:
-  CFAMIInstance:
+  AMIInstance:
     Type: "AWS::EC2::Instance"
     Metadata:
       AWS::CloudFormation::Init:
@@ -60,9 +60,9 @@ Resources:
         Fn::Base64:
           !Sub |
             #!/bin/bash
-            export PATH="/usr/local/sbin:/usr/local/bin:$PATH:/opt/aws/bin:/root/bin"
+            export PATH="/usr/local/sbin:/usr/local/bin:$PATH:/opt/aws/bin"
             echo "Running cfn-init..."
-            cfn-init --region ${AWS::Region} -s ${AWS::StackName} -r CFAMIInstance
+            cfn-init --region ${AWS::Region} -s ${AWS::StackName} -r AMIInstance
             install-splitami
             splitami
       ImageId:
@@ -75,21 +75,21 @@ Resources:
       SecurityGroupIds:
       - !GetAtt CandoCISecurityGroup.GroupId
       SubnetId: !Ref PublicSubnet
-      IamInstanceProfile: !Ref CISAMIInstanceProfile
+      IamInstanceProfile: !Ref AMIInstanceProfile
       Tags:
       - Key: Application
         Value: !Ref AWS::StackName
       - Key: Name
-        Value: CF AMI Builder experiement
+        Value: AMI Splitter
       - Key: Project
-        Value: cfami
+        Value: splitami
       - Key: Environment
         Value: sandbox
       - Key: Type
         Value: app
-      - Key: 'mdsol:cfami:sandbox:app'
+      - Key: 'mdsol:splitami:sandbox:app'
         Value: ""
-  CISAMIRole:
+  AMIRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -139,12 +139,12 @@ Resources:
           - Effect: Allow
             NotAction: iam:*
             Resource: "*"
-  CISAMIInstanceProfile:
+  AMIInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
       Path: "/"
       Roles:
-      - Ref: CISAMIRole
+      - Ref: AMIRole
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -301,4 +301,4 @@ Mappings:
 Outputs:
   BuilderIP:
     Description: Public DNS name of the builder EC2 Instance
-    Value: !GetAtt CFAMIInstance.PublicDnsName
+    Value: !GetAtt AMIInstance.PublicDnsName
