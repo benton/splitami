@@ -105,8 +105,10 @@ log.info "Mounting root device #{root_volume_device} at #{root_volume_path}..."
 mappings = src_mappings.map{|m| m.to_h} # track the created Device Mappings
 snapshot_ids = []                       # also track created snapshot IDs
 
-# iterate over each desired filesystem parameters, and for each...
-fs_params.each do |fs_param|
+# iterate over each desired filesystem parameters,
+# It's important to handle subdirectories before parent directories, so fs_params
+# must be lexically sorted by the path, and then reversed
+fs_params.sort{|a,b| a.split(':')[0] <=> b.split(':')[0]}.reverse.each do |fs_param|
   path, size, opts = fs_param.split(':')
 
   # create a new EBS data volume and wait until it's ready
