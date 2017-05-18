@@ -108,7 +108,7 @@ Resources:
             cd /app && bash -ex /scripts/app-run | tee -a /applog.txt
             if ${Shutdown} ; then
               echo "Deleting Stack ${AWS::StackName}..." | tee -a /applog.txt
-              sleep 60 # wait for CloudwatchLogs Agent to finish sending data
+              sleep 30 # wait for CloudwatchLogs Agent to finish sending data
               aws cloudformation delete-stack --stack-name ${AWS::StackName}
             fi
       ImageId:
@@ -257,9 +257,17 @@ Resources:
         Value: !Ref AWS::StackName
       - Key: Network
         Value: Public
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DependsOn: IAMInstanceProfile
+    Properties:
+      Tags:
+      - Key: Application
+        Value: !Ref AWS::StackName
+      - Key: Network
+        Value: Public
   PublicSubnet:
     Type: AWS::EC2::Subnet
-    DependsOn: IAMInstanceProfile
     Properties:
       VpcId: !Ref VPC
       MapPublicIpOnLaunch: true
@@ -273,18 +281,8 @@ Resources:
         Value: !Ref AWS::StackName
       - Key: Network
         Value: Public
-  InternetGateway:
-    Type: AWS::EC2::InternetGateway
-    DependsOn: IAMInstanceProfile
-    Properties:
-      Tags:
-      - Key: Application
-        Value: !Ref AWS::StackName
-      - Key: Network
-        Value: Public
   GatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
-    DependsOn: IAMInstanceProfile
     Properties:
       VpcId:
         Ref: VPC
@@ -311,7 +309,6 @@ Resources:
         Ref: InternetGateway
   PublicSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
-    DependsOn: IAMInstanceProfile
     Properties:
       SubnetId:
         Ref: PublicSubnet
@@ -329,7 +326,6 @@ Resources:
         Value: Public
   InboundPublicNetworkAclEntry:
     Type: AWS::EC2::NetworkAclEntry
-    DependsOn: IAMInstanceProfile
     Properties:
       NetworkAclId:
         Ref: PublicNetworkAcl
@@ -343,7 +339,6 @@ Resources:
         To: '65535'
   OutboundPublicNetworkAclEntry:
     Type: AWS::EC2::NetworkAclEntry
-    DependsOn: IAMInstanceProfile
     Properties:
       NetworkAclId:
         Ref: PublicNetworkAcl
@@ -357,7 +352,6 @@ Resources:
         To: '65535'
   PublicSubnetNetworkAclAssociation:
     Type: AWS::EC2::SubnetNetworkAclAssociation
-    DependsOn: IAMInstanceProfile
     Properties:
       SubnetId:
         Ref: PublicSubnet
@@ -365,7 +359,6 @@ Resources:
         Ref: PublicNetworkAcl
   EC2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
-    DependsOn: IAMInstanceProfile
     Properties:
       GroupDescription: Allow ssh to host
       VpcId:
@@ -393,7 +386,7 @@ Outputs:
       Fn::Join:
         - ''
         - - https://console.aws.amazon.com/cloudwatch/home?region=
-          - !Sub ${AWS::Region}#logEventViewer:group=$LogGroup};
+          - !Sub ${AWS::Region}#logEventViewer:group=${LogGroup};
           - !Sub stream=${LogStream}
   LogGroup:
     Description: The CloudwatchLogs LogGroup
