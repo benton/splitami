@@ -11,15 +11,15 @@ require 'time'
 
 ################################
 # STAGE 0 - CONFIGURATION
-log = Logger.new(STDOUT)
-log.formatter = proc do |severity, datetime, progname, msg|
-   "#{severity}: #{msg}\n"
-end
 ROOT_DEVICE_NAME   = '/dev/sda1'
 WORKDIR            = '/newami'
 REMOVE_TAGS        = ['Name', 'Description', 'CreatedAt', 'CreatedFrom']
 TIMESTAMP          = Time.now.strftime("%Y/%m/%d at %H:%M:%S")
 src_id, *fs_params = ARGV
+log = Logger.new(STDOUT)
+log.formatter = proc do |severity, datetime, progname, msg|
+   "#{severity}: #{msg}\n"
+end
 
 # validate arguments
 unless src_id =~ /\Aami-[0-9a-f]+\Z/

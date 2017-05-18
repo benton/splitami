@@ -10,10 +10,10 @@ Parameters:
     # Default disk partitions for Center for Internet Security recommendations
     Default: "/data:30:defaults /tmp:20:nodev,nosuid /var/tmp:7:nodev,nosuid,noexec /var:10:defaults /home:10:defaults,nodev /var/log/audit:5:defaults /var/log:15:defaults"
     Type: String
-  LogGroupName:
-    Description: An existing Cloudwatch LogGroup for the build log. Leave empty for a new group.
-    Type: String
-    Default: splitami
+  LogRetention:
+    Description: Number of days to retain the log
+    Type: Number
+    Default: 1
   SoftwareRepoURL:
     Description: The git checkout URL for the repo that contains splitAMI.rb
     Type: String
@@ -85,11 +85,7 @@ Resources:
 
                       [/applog.txt]
                       file = /applog.txt
-                    - |-
-                      log_group_name =
-                    - !If [NeedsNewLogGroup, !Ref LogGroup, !Ref LogGroupName]
-                    - !Sub |
-
+                      log_group_name = ${LogGroup}
                       log_stream_name = ${LogStream}
                       datetime_format = %b %d %H:%M:%S
         configSets:
@@ -380,18 +376,16 @@ Resources:
         ToPort: '22'
         CidrIp: 0.0.0.0/0
   LogGroup:
-    DependsOn: IAMInstanceProfile
-    Condition: NeedsNewLogGroup
+    DependsOn: GatewayAttachment
     Type: "AWS::Logs::LogGroup"
     DeletionPolicy: Retain
     Properties:
-      LogGroupName: !Ref LogGroupName
+      RetentionInDays: !Ref LogRetention
   LogStream:
-    DependsOn: IAMInstanceProfile
     Type: "AWS::Logs::LogStream"
     DeletionPolicy: Retain
     Properties:
-      LogGroupName: !If [NeedsNewLogGroup, !Ref LogGroup, !Ref LogGroupName]
+      LogGroupName: !Ref LogGroup
 Outputs:
   LogURL:
     Description: The AWS Console URL for the log output
@@ -399,16 +393,19 @@ Outputs:
       Fn::Join:
         - ''
         - - https://console.aws.amazon.com/cloudwatch/home?region=
-          - !Sub ${AWS::Region}#logEventViewer:group=
-          - !If [NeedsNewLogGroup, !Ref LogGroup, !Ref LogGroupName]
-          - !Sub ;stream=${LogStream}
+          - !Sub ${AWS::Region}#logEventViewer:group=$LogGroup};
+          - !Sub stream=${LogStream}
+  LogGroup:
+    Description: The CloudwatchLogs LogGroup
+    Value: !Ref LogGroup
+  LogStream:
+    Description: The CloudwatchLogs LogStream
+    Value: !Ref LogStream
   DebugCommand:
     Description: Run this command if something goes wrong
     Value: !Sub |-
       ssh -i ~/.ssh/${InstanceBootKey} ec2-user@${AMIInstance.PublicDnsName}
        cat /var/log/cloud-init-output.log
-Conditions:
-  NeedsNewLogGroup: !Equals [!Ref LogGroupName, ""]
 Mappings:
   # AMI Name = amzn-ami-hvm-2017.03.0.20170417-x86_64-gp2
   RegionAMIMap:
