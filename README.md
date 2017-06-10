@@ -42,6 +42,7 @@ Use the [CloudFormation Console][3] to create a new Stack based on the [provided
 * `SoftwareVersion` - the Git branch / reference of the `splitami` codebase that is run.
 
 You will have to check the box marked `I acknowledge that AWS CloudFormation might create IAM resources`, because the template contains an embedded IAM Role  with the necessary [permissions to run the software][7], and to [delete the Stack itself][8].
+
 Once the Stack is fully created, go to the `Outputs` tab and click on the `LogURL` to follow the software's progress. Once the program successfully completes, the ID of the output AMI will appear at the end.
 
 ----------------

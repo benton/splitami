@@ -61,6 +61,15 @@ base_tags = src_ami.tags.delete_if {|t| REMOVE_TAGS.include? t.key} <<
 
 # find the original root disk's snapshot ID
 root_mapping = src_mappings.find{|m| m.device_name == ROOT_DEVICE_NAME}
+if root_mapping == nil
+  root_mapping = src_mappings.find {|m| m.device_name =~ /xvda\Z/}
+end
+if root_mapping == nil
+  abort "Can't determine root volume from #{src_mappings}"
+end
+if root_mapping.ebs == nil
+  abort "Source AMI root volume #{root_mapping} must be EBS-based"
+end
 root_snapshot = root_mapping.ebs.snapshot_id
 
 # assign an unused final unix device name to each of the fs_params
