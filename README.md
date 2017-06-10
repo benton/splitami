@@ -7,19 +7,18 @@ This program divides the root volume of an Amazon Machine Image (AMI) into sever
 
 As input, the program takes the original Machine Image ID (AMI ID) and a list of simple volume specifications, of the format `/PATH:SIZE:FSTAB_OPTIONS`. For example, the parameter `/tmp:20:nodev,nosuid` will ensure that the output AMI has a 20GB EBS volume mounted at `/tmp`, with the `nodev,nosuid` options listed in the `/etc/fstab` file.
 
-The program will also create a new volume for a directory that does _not_ yet exist on the root volume (or is empty). In this case, the resulting AMI will just mount an empty, formatted volume of the desired size at that location. Thus, you can also use this software to add "data volumes" to an AMI. (Note, however, that all volumes created by the output AMI at instance boot time are flagged for deletion when the instance is terminated.)  
+The program will also create a new volume for any directory that does _not_ yet exist on the root volume (or is empty). In this case, the resulting AMI will just mount an empty, formatted volume of the desired size at that location. Thus, you can also use this software to add "data volumes" to an AMI. (Note, however, that all volumes created by the output AMI at instance boot time are flagged for deletion when the instance is terminated.)  
 
 ----------------
 Installation
 ----------------
-Though this software is written in Ruby, and its dependencies managed by Bundler, it can only run within EC2, because it needs access to the source AMI's root volume. Therefore, it's easiest to run the program through the [provided CloudFormation template][2], which works in all AWS Regions, and automatically cleans up after itself.
+Though this software is written in Ruby, and its dependencies managed by [Bundler][1], it can only run within EC2, because it needs access to the source AMI's root volume. Therefore, it's easiest to run the program through the [provided CloudFormation template][2]. The template does its work using the latest official Amazon Linux AMI, works in all AWS Regions, and automatically cleans up after itself.
 
-Nevertheless, if you want to run it on your own EC2 instance, just perform the usual installation process with Ruby v2.x (or later):
+Nevertheless, if you want to run the program on your own EC2 instance, just perform the usual Ruby (v2.x or later) app installation process:
 
     gem install io-console bundler
     git clone https://github.com/benton/splitami.git
-    cd splitami
-    bundle install    
+    cd splitami && bundle install    
 
 ----------------
 Usage
@@ -28,11 +27,11 @@ Use the [CloudFormation Console][3] to create a new Stack based on the [provided
 
 * `AppFilesystemParameters` - a space-separated list of volume specifications, of the format `/PATH:SIZE:FSTAB_OPTIONS`. For example, the parameter `/tmp:20:nodev,nosuid` will ensure that the output AMI has a 20GB EBS volume mounted at `/tmp`, with the `nodev,nosuid` options listed in the `/etc/fstab` file.
 
-* `AppSourceAMI` - the ID of the original Amazon Machine Image, which must be EBS-backed.
+* `AppSourceAMI` - the ID of the original Amazon Machine Image, which must be EBS-backed. Again, ensure you're creating the Stack in the same AWS Region as the source AMI.
 
-* `InstanceBootKey` - the EC2 Boot Key, installed for user 'ec2-user'. This should be needed only for debugging.
+* `InstanceBootKey` - the EC2 Boot Key, installed for user `ec2-user`. This should be needed only for debugging.
 
-* `InstanceType` - the EC2 instance type for the system that does the work; a `t2.micro` works fine.
+* `InstanceType` - the EC2 instance type for the system that runs the software; a `t2.micro` works fine.
 
 * `LogRetention` - Number of days to retain a log of this run. The output is stored in [AWS Cloudwatch Logs][6], and a Console URL for the log is provided as a template Output.
 
@@ -42,6 +41,7 @@ Use the [CloudFormation Console][3] to create a new Stack based on the [provided
 
 * `SoftwareVersion` - the Git branch / reference of the `splitami` codebase that is run.
 
+You will have to check the box marked `I acknowledge that AWS CloudFormation might create IAM resources`, because the template contains an embedded IAM Role  with the necessary [permissions to run the software][7], and to [delete the Stack itself][8].
 Once the Stack is fully created, go to the `Outputs` tab and click on the `LogURL` to follow the software's progress. Once the program successfully completes, the ID of the output AMI will appear at the end.
 
 ----------------
@@ -57,9 +57,11 @@ This software was created by Benton Roberts _(benton@bentonroberts.com)_
 
 
 
-[1]:http://cxxxx
+[1]:http://bundler.io/
 [2]:https://github.com/benton/splitami/blob/master/cf-template.yml
 [3]:https://console.aws.amazon.com/cloudformation/home
 [4]:https://github.com/benton/splitami/blob/master/cf-template.yml#L55
 [5]:https://github.com/benton/splitami/blob/master/cf-template.yml#L65
 [6]:http://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/WhatIsCloudWatchLogs.html
+[7]:https://github.com/benton/splitami/blob/master/cf-template.yml#L163
+[8]:https://github.com/benton/splitami/blob/master/cf-template.yml#L183
