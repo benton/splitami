@@ -54,6 +54,7 @@ end
 ################################
 # STAGE 1 - Mount a new volume with the contents of the source AMI's root disk
 src_ami = Aws::EC2::Image.new(src_id)
+ami_name = "#{src_ami.name} split on #{TIMESTAMP}".gsub(ILLEGAL_CHARS,'-')
 src_mappings = src_ami.block_device_mappings
 base_tags = src_ami.tags.delete_if {|t| REMOVE_TAGS.include? t.key} <<
   Aws::EC2::Types::Tag.new(key: "CreatedAt", value: TIMESTAMP) <<
@@ -168,10 +169,18 @@ fs_params.sort{|a,b| a.split(':')[0] <=> b.split(':')[0]}.reverse.each do |fs_pa
   client.detach_volume(volume_id: data_volume_id)
   client.wait_until(:volume_available, volume_ids: [data_volume_id])
   log.info "Snapshotting data volume for #{path} #{data_volume_id}..."
+  snap_name = "#{ami_name} - #{path}"
+  snap_description = "#{ami_name} #{device}, mounted at #{path}"
   snapshot_id = client.create_snapshot(
-    description: "#{src_ami.name} /dev/#{device}",
+    description: snap_description,
     volume_id: data_volume_id,
   ).snapshot_id
+  log.info "Temporarily tagging snapshot #{snapshot_id}..."
+  client.create_tags(
+    resources: [snapshot_id],
+    tags:  base_tags <<
+      Aws::EC2::Types::Tag.new(key: "Name", value: snap_name) <<
+      Aws::EC2::Types::Tag.new(key: "Description", value: snap_description))
   snapshot_ids << snapshot_id
   log.info "Deleting data volume for #{path} #{data_volume_id}..."
   client.delete_volume(volume_id: data_volume_id)
@@ -231,7 +240,6 @@ snapshot_ids.each do |snap_id|
 end
 
 ILLEGAL_CHARS = /[^a-zA-z0-9().,-\/_ ]+/ # characters not permitted in AMI names
-ami_name = "#{src_ami.name} split on #{TIMESTAMP}".gsub(ILLEGAL_CHARS,'-')
 log.info "Registering new AMI Image #{ami_name}..."
 new_ami_id = client.register_image({
   name: ami_name,
@@ -259,14 +267,12 @@ client.create_tags(
 # tag all created snapshots
 mappings.each do |mapping|
   if mapping[:ebs] && snapshot_ids.include?(mapping[:ebs][:snapshot_id])
-    log.info "Tagging snapshot #{mapping[:ebs][:snapshot_id]}..."
+    log.info "Final tagging snapshot #{mapping[:ebs][:snapshot_id]}..."
     client.create_tags(
       resources: [mapping[:ebs][:snapshot_id]],
       tags:  base_tags <<
         Aws::EC2::Types::Tag.new(key: "Name", value:
-          "#{new_ami_id} #{mapping[:device_name]}") <<
-        Aws::EC2::Types::Tag.new(key: "Description", value:
-          "Created by splitImage.rb (#{my_instance_id}) for #{new_ami_id}"))
+          "#{new_ami_id} #{mapping[:device_name]}"))
   end
 end
 
