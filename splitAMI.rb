@@ -11,7 +11,7 @@ require 'time'
 
 ################################
 # STAGE 0 - CONFIGURATION
-ROOT_DEVICE_NAME   = '/dev/sda1'
+EBS_ROOT_DEVICES   = ['sda1', 'xvda']
 WORKDIR            = '/newami'
 REMOVE_TAGS        = ['Name', 'Description', 'CreatedAt', 'CreatedFrom']
 TIMESTAMP          = Time.now.strftime("%Y/%m/%d at %H:%M:%S")
@@ -60,9 +60,8 @@ base_tags = src_ami.tags.delete_if {|t| REMOVE_TAGS.include? t.key} <<
   Aws::EC2::Types::Tag.new(key: "CreatedFrom", value: src_id)
 
 # find the original root disk's snapshot ID
-root_mapping = src_mappings.find{|m| m.device_name == ROOT_DEVICE_NAME}
-if root_mapping == nil
-  root_mapping = src_mappings.find {|m| m.device_name =~ /xvda\Z/}
+root_mapping = src_mappings.find do |m|
+  EBS_ROOT_DEVICES.find {|dev| m.device_name =~ /#{dev}\Z/}
 end
 if root_mapping == nil
   abort "Can't determine root volume from #{src_mappings}"
@@ -198,11 +197,11 @@ log.info "Detaching root volume #{root_volume_id}..."
 client.detach_volume(volume_id: root_volume_id)
 client.wait_until(:volume_available, volume_ids: [root_volume_id])
 log.info "Snapshotting root volume #{root_volume_id}..."
-root_snapshot_id = client.create_snapshot({
+new_root_snapshot_id = client.create_snapshot({
   description: "#{src_ami.name} root disk",
   volume_id: root_volume_id,
 }).snapshot_id
-snapshot_ids << root_snapshot_id
+snapshot_ids << new_root_snapshot_id
 log.info "Deleting root volume #{root_volume_id}..."
 client.delete_volume(volume_id: root_volume_id)
 
@@ -210,8 +209,8 @@ client.delete_volume(volume_id: root_volume_id)
 mappings.each do |mapping|
   if mapping[:ebs]
     mapping[:ebs].delete(:encrypted)
-    if mapping[:device_name] == ROOT_DEVICE_NAME
-      mapping[:ebs][:snapshot_id] = root_snapshot_id
+    if mapping[:device_name] == root_mapping.device_name
+      mapping[:ebs][:snapshot_id] = new_root_snapshot_id
     end
   end
 end

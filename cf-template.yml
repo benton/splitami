@@ -8,7 +8,7 @@ Parameters:
   AppFilesystemParameters:
     Description: "space-separated filesystem designations of the form [PATH]:[SIZE]:[MOUNT_OPTIONS]"
     # Default disk partitions for Center for Internet Security recommendations
-    Default: "/data:30:defaults /tmp:20:nodev,nosuid /var/tmp:7:nodev,nosuid,noexec /var:10:defaults /home:10:defaults,nodev /var/log/audit:5:defaults /var/log:15:defaults"
+    Default: "/tmp:20:nodev,nosuid /var/tmp:7:nodev,nosuid,noexec /var:10:defaults /home:10:defaults,nodev /var/log/audit:5:defaults /var/log:15:defaults"
     Type: String
   LogRetention:
     Description: Number of days to retain the log
@@ -103,9 +103,10 @@ Resources:
             aws configure set default.region ${AWS::Region}
             cfn-init --region ${AWS::Region} -s ${AWS::StackName} \
               -r AMIInstance --configsets All
-            source /scripts/setup-logging
+            bash -ex /scripts/setup-logging
             bash -ex /scripts/app-install
-            cd /app && bash -ex /scripts/app-run
+            cd /app
+            bash -ex /scripts/app-run
             if ${Shutdown} ; then
               echo Deleting Stack ${AWS::StackName}...
               sleep 30 # wait for CloudwatchLogs Agent to finish sending data
