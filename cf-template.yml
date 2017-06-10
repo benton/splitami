@@ -83,8 +83,8 @@ Resources:
                       [general]
                       state_file = /var/awslogs/state/agent-state
 
-                      [/applog.txt]
-                      file = /applog.txt
+                      [/var/log/cloud-init-output.log]
+                      file = /var/log/cloud-init-output.log
                       log_group_name = ${LogGroup}
                       log_stream_name = ${LogStream}
                       datetime_format = %b %d %H:%M:%S
@@ -103,11 +103,11 @@ Resources:
             aws configure set default.region ${AWS::Region}
             cfn-init --region ${AWS::Region} -s ${AWS::StackName} \
               -r AMIInstance --configsets All
-            source /scripts/setup-logging        | tee -a /applog.txt 2>&1
-            bash -ex /scripts/app-install        | tee -a /applog.txt 2>&1
-            cd /app && bash -ex /scripts/app-run | tee -a /applog.txt 2>&1
+            source /scripts/setup-logging
+            bash -ex /scripts/app-install
+            cd /app && bash -ex /scripts/app-run
             if ${Shutdown} ; then
-              echo "Deleting Stack ${AWS::StackName}..." | tee -a /applog.txt 2>&1
+              echo Deleting Stack ${AWS::StackName}...
               sleep 30 # wait for CloudwatchLogs Agent to finish sending data
               aws cloudformation delete-stack --stack-name ${AWS::StackName}
             fi
