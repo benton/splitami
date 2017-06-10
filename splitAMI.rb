@@ -15,6 +15,8 @@ EBS_ROOT_DEVICES   = ['sda1', 'xvda']
 WORKDIR            = '/newami'
 REMOVE_TAGS        = ['Name', 'Description', 'CreatedAt', 'CreatedFrom']
 TIMESTAMP          = Time.now.strftime("%Y/%m/%d at %H:%M:%S")
+ILLEGAL_CHARS      = /[^a-zA-z0-9().,-\/_ ]+/ # characters illegal in AMI names
+
 src_id, *fs_params = ARGV
 log = Logger.new(STDOUT)
 log.formatter = proc do |severity, datetime, progname, msg|
@@ -239,7 +241,6 @@ snapshot_ids.each do |snap_id|
     snapshot_id: snap_id)
 end
 
-ILLEGAL_CHARS = /[^a-zA-z0-9().,-\/_ ]+/ # characters not permitted in AMI names
 log.info "Registering new AMI Image #{ami_name}..."
 new_ami_id = client.register_image({
   name: ami_name,
