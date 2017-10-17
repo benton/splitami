@@ -16,6 +16,7 @@ WORKDIR            = '/newami'
 REMOVE_TAGS        = ['Name', 'Description', 'CreatedAt', 'CreatedFrom']
 TIMESTAMP          = Time.now.strftime("%Y/%m/%d at %H:%M:%S")
 ILLEGAL_CHARS      = /[^a-zA-z0-9().,-\/_ ]+/ # characters illegal in AMI names
+PUBLICIMAGE        = ENV['PUBLICIMAGE'] || 'false'
 
 src_id, *fs_params = ARGV
 log = Logger.new(STDOUT)
@@ -233,12 +234,14 @@ client.wait_until(:snapshot_completed, snapshot_ids: snapshot_ids)
 ################################
 # STAGE 4 - Register the new AMI and tag created resources
 # first, make all snapshots public
-snapshot_ids.each do |snap_id|
-  client.modify_snapshot_attribute(
-    attribute: "createVolumePermission",
-    group_names: ["all"],
-    operation_type: "add",
-    snapshot_id: snap_id)
+if PUBLICIMAGE != 'false'
+  snapshot_ids.each do |snap_id|
+    client.modify_snapshot_attribute(
+      attribute: "createVolumePermission",
+      group_names: ["all"],
+      operation_type: "add",
+      snapshot_id: snap_id)
+  end
 end
 
 log.info "Registering new AMI Image #{ami_name}..."
@@ -277,11 +280,12 @@ mappings.each do |mapping|
   end
 end
 
-log.info "Making AMI #{new_ami_id} public..."
-client.modify_image_attribute({
-  image_id: new_ami_id,
-  launch_permission: {add: [{group: "all"}]}})
-
+if PUBLICIMAGE != 'false'
+  log.info "Making AMI #{new_ami_id} public..."
+  client.modify_image_attribute({
+    image_id: new_ami_id,
+    launch_permission: {add: [{group: "all"}]}})
+end
 
 ################################
 log.info "Done. Created AMI #{new_ami_id} => #{ami_name}"

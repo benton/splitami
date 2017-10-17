@@ -8,7 +8,7 @@ Parameters:
   AppFilesystemParameters:
     Description: "space-separated filesystem designations of the form [PATH]:[SIZE]:[MOUNT_OPTIONS]"
     # Default disk partitions for Center for Internet Security recommendations
-    Default: "/tmp:20:nodev,nosuid /var/tmp:7:nodev,nosuid,noexec /var:10:defaults /home:10:defaults,nodev /var/log/audit:5:defaults /var/log:15:defaults"
+    Default: "/tmp:20:nodev,nosuid,noexec /var/tmp:7:nodev,nosuid,noexec /var:10:defaults /home:10:defaults,nodev /var/log/audit:5:defaults /var/log:15:defaults"
     Type: String
   LogRetention:
     Description: Number of days to retain the log
@@ -35,6 +35,13 @@ Parameters:
     Description: Whether or not to delete this CloudFormation Stack on completion
     Type: String
     Default: true
+    AllowedValues:
+      - true
+      - false
+  PublicImage:
+    Description: Whether or not to make the resulting AMI Public
+    Type: String
+    Default: false
     AllowedValues:
       - true
       - false
@@ -100,6 +107,7 @@ Resources:
             #!/bin/bash
             set -ex pipefail
             export PATH="/usr/local/sbin:/usr/local/bin:$PATH:/opt/aws/bin"
+            export PUBLICIMAGE="${PublicImage}"
             aws configure set default.region ${AWS::Region}
             cfn-init --region ${AWS::Region} -s ${AWS::StackName} \
               -r AMIInstance --configsets All
