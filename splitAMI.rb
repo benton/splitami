@@ -12,6 +12,7 @@ require 'time'
 ################################
 # STAGE 0 - CONFIGURATION
 EBS_ROOT_DEVICES   = ['sda1', 'xvda']
+ROOT_DEV_PARTITION = ENV['ROOT_DEV_PARTITION'] || 1
 WORKDIR            = '/newami'
 REMOVE_TAGS        = ['Name', 'Description', 'CreatedAt', 'CreatedFrom']
 TIMESTAMP          = Time.now.strftime("%Y/%m/%d at %H:%M:%S")
@@ -98,7 +99,7 @@ client.wait_until(:volume_available, volume_ids: [root_volume_id])
 
 # attach the volume and mount it at WORKDIR/root
 root_volume_path = "#{WORKDIR}/root"
-root_volume_device = "#{local_device_map['root']}1"
+root_volume_device = "#{local_device_map['root']}#{ROOT_DEV_PARTITION}"
 log.info "Attaching root volume at #{local_device_map['root']}..."
 FileUtils.mkdir_p(root_volume_path)
 resp = client.attach_volume({

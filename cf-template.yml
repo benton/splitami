@@ -5,6 +5,14 @@ Parameters:
     Description: Source AMI
     Type: String
     Default: ami-7a85a01a
+  RootDevPartition:
+    Description: Root Filesystem Partition on the AMI's root disk
+    Type: Number
+    AllowedValues:
+      - 1
+      - 2
+      - 3
+      - 4
   AppFilesystemParameters:
     Description: "space-separated filesystem designations of the form [PATH]:[SIZE]:[MOUNT_OPTIONS]"
     # Default disk partitions for Center for Internet Security recommendations
@@ -108,6 +116,7 @@ Resources:
             set -ex pipefail
             export PATH="/usr/local/sbin:/usr/local/bin:$PATH:/opt/aws/bin"
             export PUBLICIMAGE="${PublicImage}"
+            export ROOT_DEV_PARTITION=${RootDevPartition}
             aws configure set default.region ${AWS::Region}
             cfn-init --region ${AWS::Region} -s ${AWS::StackName} \
               -r AMIInstance --configsets All
