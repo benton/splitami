@@ -4,10 +4,11 @@ Parameters:
   AppSourceAMI:
     Description: Source AMI
     Type: String
-    Default: ami-7a85a01a
+    Default: ami-0625f87c
   RootDevPartition:
     Description: Root Filesystem Partition on the AMI's root disk
     Type: Number
+    Default: 2
     AllowedValues:
       - 1
       - 2
@@ -29,7 +30,7 @@ Parameters:
   SoftwareVersion:
     Description: Which branch / Git reference of splitAMI.rb to run
     Type: String
-    Default: master
+    Default: root-dev-partition
   InstanceType:
     Description: Worker EC2 instance type (m3.medium, etc).
     Type: String
